@@ -23,7 +23,7 @@ import socket
 import sys
 
 from sabnzbd.newswrapper import NewsWrapper, NNTPPermanentError
-from sabnzbd.downloader import Server, clues_login, clues_too_many, nntp_to_msg
+from sabnzbd.downloader import Server, clues_login, clues_too_many
 from sabnzbd.config import get_servers
 from sabnzbd.misc import int_conv
 
@@ -91,7 +91,6 @@ def test_nntp_server(host, port, server=None, username=None, password=None, ssl=
         nw = NewsWrapper(s, -1, block=True)
         nw.init_connect()
         while not nw.connected:
-            nw.clear_data()
             nw.recv_chunk(block=True)
             nw.finish_connect(nw.status_code)
 
@@ -125,7 +124,7 @@ def test_nntp_server(host, port, server=None, username=None, password=None, ssl=
     if not username or not password:
         nw.nntp.sock.sendall(b"ARTICLE <test@home>\r\n")
         try:
-            nw.clear_data()
+            nw.reset_data_buffer()
             nw.recv_chunk(block=True)
         except:
             # Some internal error, not always safe to close connection
@@ -136,12 +135,12 @@ def test_nntp_server(host, port, server=None, username=None, password=None, ssl=
     elif nw.status_code < 300 or nw.status_code in (411, 423, 430):
         # If no username/password set and we requested fake-article, it will return 430 Not Found
         return_status = (True, T("Connection Successful!"))
-    elif nw.status_code == 502 or clues_login(nntp_to_msg(nw.data)):
+    elif nw.status_code == 502 or clues_login(nw.nntp_msg):
         return_status = (False, T("Authentication failed, check username/password."))
-    elif clues_too_many(nntp_to_msg(nw.data)):
+    elif clues_too_many(nw.nntp_msg):
         return_status = (False, T("Too many connections, please pause downloading or try again later"))
     else:
-        return_status = (False, T("Could not determine connection result (%s)") % nntp_to_msg(nw.data))
+        return_status = (False, T("Could not determine connection result (%s)") % nw.nntp_msg)
 
     # Close the connection and return result
     nw.hard_reset(send_quit=True)

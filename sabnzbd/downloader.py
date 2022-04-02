@@ -35,7 +35,7 @@ from sabnzbd.decorators import synchronized, NzbQueueLocker, DOWNLOADER_CV
 from sabnzbd.newswrapper import NewsWrapper, NNTPPermanentError
 import sabnzbd.config as config
 import sabnzbd.cfg as cfg
-from sabnzbd.misc import from_units, nntp_to_msg, get_server_addrinfo, helpful_warning
+from sabnzbd.misc import from_units, get_server_addrinfo, helpful_warning
 from sabnzbd.utils.happyeyeballs import happyeyeballs
 
 
@@ -510,7 +510,7 @@ class Downloader(Thread):
             # Make sure server address resolution is refreshed
             server.info = None
 
-    def decode(self, article, raw_data: Optional[List[bytes]]):
+    def decode(self, article, raw_data: Optional[bytearray] = None, raw_data_size: Optional[int] = None):
         """Decode article and check the status of
         the decoder and the assembler
         """
@@ -525,7 +525,7 @@ class Downloader(Thread):
             return
 
         # Send to decoder-queue
-        sabnzbd.Decoder.process(article, raw_data)
+        sabnzbd.Decoder.process(article, raw_data, raw_data_size)
 
         # See if we need to delay because the queues are full
         logged = False
@@ -643,9 +643,9 @@ class Downloader(Thread):
                             article = server.article_queue.pop(0)
                             # Mark expired articles as tried on this server
                             if server.retention and article.nzf.nzo.avg_stamp < now - server.retention:
-                                self.decode(article, None)
+                                self.decode(article)
                                 while server.article_queue:
-                                    self.decode(server.article_queue.pop(), None)
+                                    self.decode(server.article_queue.pop())
                                 # Move to the next server, allowing the next server to already start
                                 # fetching the articles that were too old for this server
                                 break
@@ -786,10 +786,8 @@ class Downloader(Thread):
                         try:
                             nw.finish_connect(nw.status_code)
                             if sabnzbd.LOG_ALL:
-                                logging.debug(
-                                    "%s@%s last message -> %s", nw.thrdnum, nw.server.host, nntp_to_msg(nw.data)
-                                )
-                            nw.clear_data()
+                                logging.debug("%s@%s last message -> %s", nw.thrdnum, nw.server.host, nw.nntp_msg)
+                            nw.reset_data_buffer()
                         except NNTPPermanentError as error:
                             # Handle login problems
                             block = False
@@ -874,7 +872,7 @@ class Downloader(Thread):
                                 T("Connecting %s@%s failed, message=%s"),
                                 nw.thrdnum,
                                 nw.server.host,
-                                nntp_to_msg(nw.data),
+                                nw.nntp_msg,
                             )
                             # No reset-warning needed, above logging is sufficient
                             self.__reset_nw(nw, retry_article=False)
@@ -888,9 +886,9 @@ class Downloader(Thread):
                         logging.debug("Article <%s> is present", article.article)
 
                     elif nw.status_code == 211:
-                        logging.debug("group command ok -> %s", nntp_to_msg(nw.data))
+                        logging.debug("group command ok -> %s", nw.nntp_msg)
                         nw.group = nw.article.nzf.nzo.group
-                        nw.clear_data()
+                        nw.reset_data_buffer()
                         self.__request_article(nw)
 
                     elif nw.status_code in (411, 423, 430):
@@ -902,7 +900,7 @@ class Downloader(Thread):
                             article.article,
                             nw.status_code,
                         )
-                        nw.clear_data()
+                        nw.reset_data_buffer()
 
                     elif nw.status_code == 500:
                         if article.nzf.nzo.precheck:
@@ -913,7 +911,7 @@ class Downloader(Thread):
                             # Assume "BODY" command is not supported
                             server.have_body = False
                             logging.debug("Server %s does not support BODY", server.host)
-                        nw.clear_data()
+                        nw.reset_data_buffer()
                         self.__request_article(nw)
 
                 if done:
@@ -922,7 +920,7 @@ class Downloader(Thread):
                     server.errormsg = server.warning = ""
                     if sabnzbd.LOG_ALL:
                         logging.debug("Thread %s@%s: %s done", nw.thrdnum, server.host, article.article)
-                    self.decode(article, nw.data)
+                    self.decode(article, nw.data, nw.data_position)
 
                     # Reset connection for new activity
                     nw.soft_reset()

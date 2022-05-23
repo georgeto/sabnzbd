@@ -357,15 +357,24 @@ function ViewModel() {
             self.history.lastUpdate = 0
         }
 
-        // History
-        callAPI({
+        // Build history request
+        var history_call = {
             mode: "history",
-            search: self.history.searchTerm(),
             failed_only: self.history.showFailed()*1,
             start: self.history.pagination.currentStart(),
             limit: parseInt(self.history.paginationLimit()),
             last_history_update: self.history.lastUpdate
-        }).done(self.updateHistory);
+        }
+
+        // Parse search term
+        if(self.history.searchTerm()) {
+            var parsed_query = search_query_parse(self.history.searchTerm(), { keywords:["cat"] })
+            history_call["search"] = parsed_query.text
+            history_call["cat"] = parsed_query.cat
+        }
+
+        // History
+        callAPI(history_call).done(self.updateHistory);
 
         // We are now done with any loading
         // But we wait a few ms so Knockout has time to update
